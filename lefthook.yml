@@ -1,0 +1,17 @@
+# Build inner-loop gate. Must stay under 10s total or it will get skipped — speed is a feature.
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      run: test -z "$(gofmt -l .)" || { echo "unformatted:"; gofmt -l .; exit 1; }
+    vet:
+      run: go vet ./...
+    test:
+      run: go test -short ./...
+
+# Validate assistant: local AI review before code leaves the machine — no CI minutes, no secrets.
+# ponytail: advisory (never blocks the push); flip to blocking if findings start getting ignored.
+pre-push:
+  commands:
+    ai-review:
+      run: command -v claude >/dev/null || exit 0; claude -p "/ponytail-review origin/main...HEAD" || true

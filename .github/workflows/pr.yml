@@ -1,0 +1,25 @@
+# Validate: no green, no merge. M1 = lint + unit; component suite lands in M2.
+# AI review runs locally in the pre-push hook (see lefthook.yml + docs/adr/0002), not here.
+name: pr
+
+on:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
