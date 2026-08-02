@@ -1,3 +1,3 @@
-module github.com/jamesponwith/flywheel-template
+module github.com/jamesponwith/llm-resiliency-router
 
 go 1.25

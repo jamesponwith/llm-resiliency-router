@@ -1,0 +1,1 @@
+{"_type":"issue","id":"llm-resiliency-router-egw","title":"M1: passthrough proxy — single upstream, OpenAI-compatible /v1/chat/completions with SSE streaming, works with a real client","status":"open","priority":2,"issue_type":"task","created_at":"2026-08-02T12:48:43Z","updated_at":"2026-08-02T12:48:43Z","dependency_count":0,"dependent_count":0,"comment_count":0}
