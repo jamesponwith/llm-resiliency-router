@@ -1,4 +1,37 @@
 {
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "test -z \"$(gofmt -l .)\" || { echo \"unformatted: $(gofmt -l .)\" \u003e\u00262; exit 2; }; go vet ./... || exit 2",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash(go test:*)",
@@ -6,23 +39,6 @@
       "Bash(go vet:*)",
       "Bash(gofmt:*)",
       "Bash(bd:*)"
-    ]
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [{ "type": "command", "command": "bd prime" }]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "test -z \"$(gofmt -l .)\" || { echo \"unformatted: $(gofmt -l .)\" >&2; exit 2; }; go vet ./... || exit 2"
-          }
-        ]
-      }
     ]
   }
 }

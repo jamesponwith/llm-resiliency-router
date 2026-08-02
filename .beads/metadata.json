@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "llm_resiliency_router",
+  "project_id": "8db12b5e-de50-4a83-8ed5-b91dee286d3d"
+}
