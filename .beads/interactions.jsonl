@@ -1,1 +1,2 @@
 {"id":"int-64b62e76","kind":"field_change","created_at":"2026-08-03T22:42:31.76286Z","actor":"jamesponwith","issue_id":"llm-resiliency-router-egw","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-02231095","kind":"field_change","created_at":"2026-08-03T22:46:04.306624Z","actor":"jamesponwith","issue_id":"llm-resiliency-router-egw","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"M1 shipped via PR #1: passthrough proxy with per-chunk SSE flush, merged through full Validate gate"}}
