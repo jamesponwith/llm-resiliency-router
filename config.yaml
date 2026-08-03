@@ -1,0 +1,11 @@
+# M1: all traffic goes to the first upstream. url is the provider ORIGIN only —
+# the client's path (/v1/chat/completions, /v1/models) is forwarded verbatim,
+# so don't append /v1 here. Priority/policy/health fields land in M2.
+listen: :8484
+upstreams:
+  - name: local
+    url: http://localhost:11434 # ollama — free, OpenAI-compatible, last-resort failover
+    api_key_env: ""
+  # - name: openai
+  #   url: https://api.openai.com
+  #   api_key_env: OPENAI_API_KEY
