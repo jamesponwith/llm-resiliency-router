@@ -1,19 +1,121 @@
 package main
 
-import "testing"
+import (
+	"bufio"
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
 
-func TestGreet(t *testing.T) {
+func TestLoadConfig(t *testing.T) {
 	tests := []struct {
-		name, in, want string
+		name       string
+		yamlSrc    string
+		wantErr    bool
+		wantListen string
 	}{
-		{"default", "", "hello, world"},
-		{"named", "flywheel", "hello, flywheel"},
+		{"valid with default listen", "upstreams:\n  - name: x\n    url: http://localhost:1\n", false, ":8484"},
+		{"explicit listen", "listen: :9000\nupstreams:\n  - name: x\n    url: http://localhost:1\n", false, ":9000"},
+		{"no upstreams", "listen: :9000\n", true, ""},
+		{"missing scheme", "upstreams:\n  - name: x\n    url: localhost:1\n", true, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Greet(tt.in); got != tt.want {
-				t.Errorf("Greet(%q) = %q, want %q", tt.in, got, tt.want)
+			p := filepath.Join(t.TempDir(), "c.yaml")
+			if err := os.WriteFile(p, []byte(tt.yamlSrc), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := loadConfig(p)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("loadConfig() err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && c.Listen != tt.wantListen {
+				t.Errorf("Listen = %q, want %q", c.Listen, tt.wantListen)
 			}
 		})
+	}
+}
+
+// Component test: request passes through untouched, auth header injected from env.
+func TestPassthrough(t *testing.T) {
+	t.Setenv("TEST_ROUTER_KEY", "sekret")
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// echo request facts into headers to avoid shared-state races
+		w.Header().Set("Echo-Auth", r.Header.Get("Authorization"))
+		w.Header().Set("Echo-Path", r.URL.Path)
+		io.WriteString(w, `{"object":"chat.completion"}`)
+	}))
+	defer fake.Close()
+
+	cfg := &Config{Upstreams: []Upstream{{Name: "fake", URL: fake.URL, APIKeyEnv: "TEST_ROUTER_KEY"}}}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := string(body); got != `{"object":"chat.completion"}` {
+		t.Errorf("body = %q", got)
+	}
+	if got := resp.Header.Get("Echo-Auth"); got != "Bearer sekret" {
+		t.Errorf("auth = %q, want Bearer sekret", got)
+	}
+	if got := resp.Header.Get("Echo-Path"); got != "/v1/chat/completions" {
+		t.Errorf("path = %q", got)
+	}
+}
+
+// Component test: SSE chunks reach the client before the upstream finishes the
+// response. Fails (times out) if the proxy buffers instead of flushing per chunk.
+func TestStreamingFlushPerChunk(t *testing.T) {
+	release := make(chan struct{})
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		io.WriteString(w, "data: one\n\n")
+		f.Flush()
+		<-release // hold the stream open until the client has read chunk one
+		io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer fake.Close()
+
+	cfg := &Config{Upstreams: []Upstream{{Name: "fake", URL: fake.URL}}}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "POST", srv.URL+"/v1/chat/completions", strings.NewReader(`{}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	r := bufio.NewReader(resp.Body)
+	line, err := r.ReadString('\n') // blocks until timeout if proxy buffers
+	if err != nil {
+		t.Fatalf("reading first chunk: %v", err)
+	}
+	if !strings.Contains(line, "one") {
+		t.Fatalf("first chunk = %q, want data: one", line)
+	}
+	close(release)
+	rest, _ := io.ReadAll(r)
+	if !strings.Contains(string(rest), "[DONE]") {
+		t.Fatalf("rest = %q, want [DONE]", rest)
 	}
 }
