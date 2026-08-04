@@ -17,7 +17,11 @@ go run . -config config.yaml   # defaults to ollama on localhost:11434
 
 ## Failover demo
 
-Two fake providers (the chaos harness), the router in front, kill one:
+![failover demo: primary killed mid-traffic, requests shift to backup with zero client errors, half-open probe recovers primary](docs/failover-demo.gif)
+
+Recorded with [phux](https://github.com/phall1/phux)'s built-in recorder from
+`demo/failover-demo.sh`. To run it live — two fake providers (the chaos
+harness), the router in front, kill one:
 
 ```sh
 go run ./cmd/chaos -name primary -listen :9001   # terminal 1

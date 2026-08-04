@@ -5,3 +5,4 @@ dist/
 .dolt/
 *.db
 .beads-credential-key
+bin/
