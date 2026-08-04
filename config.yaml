@@ -15,6 +15,7 @@ upstreams:
   #   api_key_env: OPENAI_API_KEY
 health:
   eject_after: 3 # consecutive hard failures (5xx/429/timeout) before ejection
-  window: 60s # p95 window for the degraded signal (log-only)
+  window: 60s # p95 window for the degraded signal
+  degrade_p95: 8s # p95 above this marks the cell degraded (log-only until M3)
   probe_interval: 15s # half-open probe cadence while ejected
   timeout: 30s # upstream response-header timeout (catches hangs)

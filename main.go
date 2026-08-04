@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,20 +16,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/jamesponwith/llm-resiliency-router/chaos"
 	"gopkg.in/yaml.v3"
 )
 
 // Duration parses "60s"-style YAML values (yaml.v3 has no native support).
-type Duration time.Duration
-
-func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
-	v, err := time.ParseDuration(n.Value)
-	if err != nil {
-		return err
-	}
-	*d = Duration(v)
-	return nil
-}
+type Duration = chaos.Duration
 
 type Upstream struct {
 	Name      string            `yaml:"name"`
@@ -67,21 +60,11 @@ func loadConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if c.Listen == "" {
-		c.Listen = ":8484"
-	}
-	if c.Health.EjectAfter == 0 {
-		c.Health.EjectAfter = 3
-	}
-	if c.Health.Window == 0 {
-		c.Health.Window = Duration(60 * time.Second)
-	}
-	if c.Health.ProbeInterval == 0 {
-		c.Health.ProbeInterval = Duration(15 * time.Second)
-	}
-	if c.Health.Timeout == 0 {
-		c.Health.Timeout = Duration(30 * time.Second)
-	}
+	c.Listen = cmp.Or(c.Listen, ":8484")
+	c.Health.EjectAfter = cmp.Or(c.Health.EjectAfter, 3)
+	c.Health.Window = cmp.Or(c.Health.Window, Duration(60*time.Second))
+	c.Health.ProbeInterval = cmp.Or(c.Health.ProbeInterval, Duration(15*time.Second))
+	c.Health.Timeout = cmp.Or(c.Health.Timeout, Duration(30*time.Second))
 	if len(c.Upstreams) == 0 {
 		return nil, fmt.Errorf("%s: at least one upstream required", path)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -64,11 +65,7 @@ func (passthrough) writeResponse(w http.ResponseWriter, resp *http.Response, _ c
 // fault, so it isn't.
 func copyResponse(w http.ResponseWriter, resp *http.Response) error {
 	defer resp.Body.Close()
-	for k, vs := range resp.Header {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
+	maps.Copy(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	f, _ := w.(http.Flusher)
 	buf := make([]byte, 32*1024)
