@@ -1,11 +1,20 @@
-# M1: all traffic goes to the first upstream. url is the provider ORIGIN only —
-# the client's path (/v1/chat/completions, /v1/models) is forwarded verbatim,
-# so don't append /v1 here. Priority/policy/health fields land in M2.
+# M2: priority failover — upstreams are tried in order; one that fails
+# health.eject_after times in a row is ejected, then probed with real traffic
+# every probe_interval until it recovers. url is the provider ORIGIN only
+# (no /v1 suffix) — the client's path is forwarded verbatim.
 listen: :8484
 upstreams:
   - name: local
-    url: http://localhost:11434 # ollama — free, OpenAI-compatible, last-resort failover
-    api_key_env: ""
+    kind: ollama # openai-compatible; url defaults to http://localhost:11434
+  # - name: anthropic
+  #   kind: anthropic # translated to /v1/messages under the hood
+  #   api_key_env: ANTHROPIC_API_KEY
+  #   models: { "gpt-4o": "claude-sonnet-5" } # requested-model → provider-model
   # - name: openai
-  #   url: https://api.openai.com
+  #   kind: openai
   #   api_key_env: OPENAI_API_KEY
+health:
+  eject_after: 3 # consecutive hard failures (5xx/429/timeout) before ejection
+  window: 60s # p95 window for the degraded signal (log-only)
+  probe_interval: 15s # half-open probe cadence while ejected
+  timeout: 30s # upstream response-header timeout (catches hangs)

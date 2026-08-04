@@ -1,0 +1,13 @@
+# Failover demo config: two chaos providers (see README). Kill :9001 and
+# watch the model field flip to backup; restart it and traffic returns
+# within probe_interval.
+listen: :8484
+upstreams:
+  - name: primary
+    url: http://localhost:9001
+  - name: backup
+    url: http://localhost:9002
+health:
+  eject_after: 3
+  probe_interval: 15s
+  timeout: 2s
