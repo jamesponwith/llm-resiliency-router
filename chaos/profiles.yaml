@@ -1,0 +1,10 @@
+# Failure profiles for the chaos provider (cmd/chaos) and component tests.
+healthy: {}
+flaky:
+  fail_every: 3 # every 3rd request 500s
+slow:
+  latency: 2s
+down:
+  fail_every: 1 # every request 500s
+hang:
+  hang: true # accepts the request, never responds (exercises health.timeout)

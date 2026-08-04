@@ -2,6 +2,15 @@ version: "2"
 
 linters:
   default: standard
+  settings:
+    errcheck:
+      # ponytail: a proxy's Fprint targets are client sockets and its Closes
+      # are response bodies — both error paths are meaningless here. Revisit
+      # if we ever close a file we wrote.
+      exclude-functions:
+        - (io.Closer).Close
+        - fmt.Fprint
+        - fmt.Fprintf
   exclusions:
     rules:
       # ponytail: unchecked writes in httptest fakes are noise, not bugs

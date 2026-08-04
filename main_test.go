@@ -3,14 +3,18 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jamesponwith/llm-resiliency-router/chaos"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -24,6 +28,8 @@ func TestLoadConfig(t *testing.T) {
 		{"explicit listen", "listen: :9000\nupstreams:\n  - name: x\n    url: http://localhost:1\n", false, ":9000"},
 		{"no upstreams", "listen: :9000\n", true, ""},
 		{"missing scheme", "upstreams:\n  - name: x\n    url: localhost:1\n", true, ""},
+		{"unknown kind", "upstreams:\n  - name: x\n    kind: bard\n", true, ""},
+		{"kind implies url", "upstreams:\n  - name: x\n    kind: ollama\n", false, ":8484"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,6 +48,36 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigHealthDefaults(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	src := "upstreams:\n  - name: x\n    kind: ollama\nhealth:\n  eject_after: 5\n  probe_interval: 30s\n"
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := loadConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Health.EjectAfter != 5 {
+		t.Errorf("EjectAfter = %d, want explicit 5", c.Health.EjectAfter)
+	}
+	if time.Duration(c.Health.ProbeInterval) != 30*time.Second {
+		t.Errorf("ProbeInterval = %v, want parsed 30s", time.Duration(c.Health.ProbeInterval))
+	}
+	if time.Duration(c.Health.Timeout) != 30*time.Second {
+		t.Errorf("Timeout = %v, want 30s default", time.Duration(c.Health.Timeout))
+	}
+}
+
+func testHealth() HealthConfig {
+	return HealthConfig{
+		EjectAfter:    3,
+		Window:        Duration(time.Minute),
+		ProbeInterval: Duration(time.Hour), // no probes during tests
+		Timeout:       Duration(5 * time.Second),
+	}
+}
+
 // Component test: request passes through untouched, auth header injected from env.
 func TestPassthrough(t *testing.T) {
 	t.Setenv("TEST_ROUTER_KEY", "sekret")
@@ -53,7 +89,10 @@ func TestPassthrough(t *testing.T) {
 	}))
 	defer fake.Close()
 
-	cfg := &Config{Upstreams: []Upstream{{Name: "fake", URL: fake.URL, APIKeyEnv: "TEST_ROUTER_KEY"}}}
+	cfg := &Config{
+		Upstreams: []Upstream{{Name: "fake", URL: fake.URL, APIKeyEnv: "TEST_ROUTER_KEY"}},
+		Health:    testHealth(),
+	}
 	srv := httptest.NewServer(handler(cfg))
 	defer srv.Close()
 
@@ -74,7 +113,7 @@ func TestPassthrough(t *testing.T) {
 		t.Errorf("auth = %q, want Bearer sekret", got)
 	}
 	if got := resp.Header.Get("Echo-Path"); got != "/v1/chat/completions" {
-		t.Errorf("path = %q", got)
+		t.Errorf("path = %q, want /v1/chat/completions", got)
 	}
 }
 
@@ -92,7 +131,7 @@ func TestStreamingFlushPerChunk(t *testing.T) {
 	}))
 	defer fake.Close()
 
-	cfg := &Config{Upstreams: []Upstream{{Name: "fake", URL: fake.URL}}}
+	cfg := &Config{Upstreams: []Upstream{{Name: "fake", URL: fake.URL}}, Health: testHealth()}
 	srv := httptest.NewServer(handler(cfg))
 	defer srv.Close()
 
@@ -117,5 +156,94 @@ func TestStreamingFlushPerChunk(t *testing.T) {
 	rest, _ := io.ReadAll(r)
 	if !strings.Contains(string(rest), "[DONE]") {
 		t.Fatalf("rest = %q, want [DONE]", rest)
+	}
+}
+
+// Component test: a dead primary falls through to the backup before the
+// client sees anything — the chaos handler reports its name as the model.
+func TestFailover(t *testing.T) {
+	down := httptest.NewServer(chaos.Handler("primary", chaos.Profile{FailEvery: 1}))
+	defer down.Close()
+	backup := httptest.NewServer(chaos.Handler("backup", chaos.Profile{}))
+	defer backup.Close()
+
+	cfg := &Config{
+		Upstreams: []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
+		Health:    testHealth(),
+	}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	for i := 0; i < 5; i++ {
+		resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out struct {
+			Model string `json:"model"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != 200 || out.Model != "backup" {
+			t.Fatalf("req %d: status=%d model=%q err=%v, want 200 from backup", i, resp.StatusCode, out.Model, err)
+		}
+	}
+}
+
+// Component test: after eject_after consecutive failures the primary stops
+// receiving traffic entirely (no probes: interval is 1h in testHealth).
+func TestEjectionStopsTraffic(t *testing.T) {
+	var hits atomic.Int64
+	downH := chaos.Handler("primary", chaos.Profile{FailEvery: 1})
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		downH.ServeHTTP(w, r)
+	}))
+	defer down.Close()
+	backup := httptest.NewServer(chaos.Handler("backup", chaos.Profile{}))
+	defer backup.Close()
+
+	cfg := &Config{
+		Upstreams: []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
+		Health:    testHealth(),
+	}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	for i := 0; i < 10; i++ {
+		resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	if h := hits.Load(); h != 3 {
+		t.Errorf("primary hit %d times, want exactly eject_after (3)", h)
+	}
+}
+
+// Component test: streaming works through failover — dead primary, backup streams.
+func TestFailoverStreaming(t *testing.T) {
+	down := httptest.NewServer(chaos.Handler("primary", chaos.Profile{FailEvery: 1}))
+	defer down.Close()
+	backup := httptest.NewServer(chaos.Handler("backup", chaos.Profile{Reply: "streamed reply"}))
+	defer backup.Close()
+
+	cfg := &Config{
+		Upstreams: []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
+		Health:    testHealth(),
+	}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m","stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"backup"`) || !strings.Contains(string(body), "data: [DONE]") {
+		t.Fatalf("stream = %q, want chunks from backup ending in [DONE]", body)
 	}
 }
