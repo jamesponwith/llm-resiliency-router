@@ -73,17 +73,16 @@ func (rt *router) hedged(r *http.Request, body []byte, meta chatMeta, first, sec
 	timer := time.NewTimer(time.Duration(rt.cfg.HedgeAfter))
 	defer timer.Stop()
 	launched, received, fired := 1, 0, false
-	// drain closes bodies of results that arrive after we've returned
-	// (e.g. a slow loser completing rather than seeing the cancel).
+	// drain closes the body of the at-most-one straggler that finishes
+	// after we've returned instead of seeing the cancel.
 	drain := func() {
-		left := launched - received
-		go func() {
-			for ; left > 0; left-- {
+		if launched > received {
+			go func() {
 				if res := <-ch; res.resp != nil {
 					res.resp.Body.Close()
 				}
-			}
-		}()
+			}()
+		}
 	}
 	for {
 		select {
