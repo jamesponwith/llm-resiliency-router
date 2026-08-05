@@ -35,6 +35,13 @@ real traffic, so a lobotomized provider is ejected within one cycle and a
 recovered one earns its way back. This is what separates the router from a
 generic load balancer: it routes on *quality*, not just liveness.
 
+## Hedged requests
+
+With `hedge_after: 1500ms`, a request whose first token hasn't arrived by
+then is raced against the next healthy upstream — first token wins, the
+loser is cancelled and not blamed by the health model. Tail-latency
+insurance that costs duplicate requests, so it's off by default.
+
 ## Failover demo
 
 ![failover demo: primary killed mid-traffic, requests shift to backup with zero client errors, half-open probe recovers primary](docs/failover-demo.gif)
