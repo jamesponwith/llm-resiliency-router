@@ -45,6 +45,7 @@ type Config struct {
 	DecisionLog string       `yaml:"decision_log"` // JSONL path; "" disables (loadConfig defaults it)
 	Upstreams   []Upstream   `yaml:"upstreams"`    // priority order: first is preferred
 	Health      HealthConfig `yaml:"health"`
+	Canary      CanaryConfig `yaml:"canary"`
 }
 
 var defaultURLs = map[string]string{
@@ -72,6 +73,12 @@ func loadConfig(path string) (*Config, error) {
 	c.Health.Window = cmp.Or(c.Health.Window, Duration(60*time.Second))
 	c.Health.ProbeInterval = cmp.Or(c.Health.ProbeInterval, Duration(15*time.Second))
 	c.Health.Timeout = cmp.Or(c.Health.Timeout, Duration(30*time.Second))
+	if c.Canary.Interval > 0 {
+		c.Canary.Prompts = cmp.Or(c.Canary.Prompts, "canary/prompts.yaml")
+		if c.Canary.Model == "" {
+			return nil, fmt.Errorf("%s: canary.model required when canary.interval is set", path)
+		}
+	}
 	if len(c.Upstreams) == 0 {
 		return nil, fmt.Errorf("%s: at least one upstream required", path)
 	}
@@ -94,87 +101,115 @@ func loadConfig(path string) (*Config, error) {
 	return &c, nil
 }
 
-// handler tries upstreams in config order, skipping ejected cells. A hard
+// router is the shared state behind the HTTP handler and the canary loop:
+// one health cell per upstream, the decision log, and the upstream client.
+type router struct {
+	cfg    *Config
+	cells  []*Cell
+	checks []canaryCheck
+	dlog   *decisionLog
+	client *http.Client
+	learn  bool
+}
+
+func handler(c *Config) http.Handler { return newRouter(c) }
+
+func newRouter(c *Config) *router {
+	rt := &router{
+		cfg:   c,
+		cells: make([]*Cell, len(c.Upstreams)),
+		dlog:  newDecisionLog(c.DecisionLog),
+		client: &http.Client{Transport: &http.Transport{
+			ResponseHeaderTimeout: time.Duration(c.Health.Timeout),
+		}},
+		learn: c.Mode != "action", // a zero-value Config counts as learn, same as loadConfig
+	}
+	for i := range c.Upstreams {
+		rt.cells[i] = newCell(c.Health)
+	}
+	if c.Canary.Interval > 0 {
+		checks, err := loadChecks(c.Canary.Prompts)
+		if err != nil {
+			slog.Error("canary disabled", "err", err)
+		} else {
+			rt.checks = checks
+			go rt.canaryLoop()
+		}
+	}
+	return rt
+}
+
+// ServeHTTP tries upstreams in config order, skipping ejected cells. A hard
 // failure (transport error, timeout, 429, 5xx) before anything is written to
 // the client falls through to the next upstream — the client never sees it.
 // In learn mode the decision loop runs but does not act: the first upstream
 // serves every request, would-be skips and failovers are only logged, and
 // the client sees any failure the engine would have hidden.
-func handler(c *Config) http.Handler {
-	cells := make([]*Cell, len(c.Upstreams))
-	for i := range c.Upstreams {
-		cells[i] = newCell(c.Health)
+func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c := rt.cfg
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"reading request body"}}`, http.StatusBadRequest)
+		return
 	}
-	dlog := newDecisionLog(c.DecisionLog)
-	client := &http.Client{Transport: &http.Transport{
-		ResponseHeaderTimeout: time.Duration(c.Health.Timeout),
-	}}
-	learn := c.Mode != "action" // a zero-value Config counts as learn, same as loadConfig
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, `{"error":{"message":"reading request body"}}`, http.StatusBadRequest)
-			return
+	var meta chatMeta
+	_ = json.Unmarshal(body, &meta) // non-JSON or empty body: zero meta is fine
+	start := time.Now()
+	var events []string
+	logDec := func(chose string, status int) {
+		rt.dlog.write(decision{Mode: c.Mode, Path: r.URL.Path, Chose: chose,
+			Status: status, DurMS: time.Since(start).Milliseconds(), Events: events})
+	}
+	for i := range c.Upstreams {
+		u, cell := c.Upstreams[i], rt.cells[i]
+		if !rt.learn && !cell.Allow() {
+			events = append(events, "skip:"+u.Name+"("+cell.State().String()+")")
+			continue
 		}
-		var meta chatMeta
-		_ = json.Unmarshal(body, &meta) // non-JSON or empty body: zero meta is fine
-		start := time.Now()
-		var events []string
-		logDec := func(chose string, status int) {
-			dlog.write(decision{Mode: c.Mode, Path: r.URL.Path, Chose: chose,
-				Status: status, DurMS: time.Since(start).Milliseconds(), Events: events})
+		if rt.learn {
+			if s := cell.State(); s == Ejected || s == HalfOpen {
+				events = append(events, "would_skip:"+u.Name+"("+s.String()+")")
+			}
 		}
-		for i := range c.Upstreams {
-			u, cell := c.Upstreams[i], cells[i]
-			if !learn && !cell.Allow() {
-				events = append(events, "skip:"+u.Name+"("+cell.State().String()+")")
+		a := adapterFor(u)
+		tryStart := time.Now()
+		resp, err := a.roundTrip(rt.client, r, u, body, meta)
+		if err != nil || resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			status := 0
+			if resp != nil {
+				status = resp.StatusCode
+			}
+			cell.Record(time.Since(tryStart), true)
+			slog.Warn("upstream hard failure", "upstream", u.Name, "cell", cell.State().String(),
+				"status", status, "err", err)
+			if !rt.learn {
+				events = append(events, fmt.Sprintf("failover_from:%s(status=%d)", u.Name, status))
+				if resp != nil {
+					resp.Body.Close()
+				}
 				continue
 			}
-			if learn {
-				if s := cell.State(); s == Ejected || s == HalfOpen {
-					events = append(events, "would_skip:"+u.Name+"("+s.String()+")")
-				}
+			// learn observes but does not shift traffic: the client sees this.
+			events = append(events, fmt.Sprintf("would_failover_from:%s(status=%d)", u.Name, status))
+			if resp != nil {
+				_ = copyResponse(w, resp)
+			} else {
+				status = http.StatusBadGateway
+				http.Error(w, `{"error":{"message":"upstream unavailable"}}`, status)
 			}
-			a := adapterFor(u)
-			tryStart := time.Now()
-			resp, err := a.roundTrip(client, r, u, body, meta)
-			if err != nil || resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
-				status := 0
-				if resp != nil {
-					status = resp.StatusCode
-				}
-				cell.Record(time.Since(tryStart), true)
-				slog.Warn("upstream hard failure", "upstream", u.Name, "cell", cell.State().String(),
-					"status", status, "err", err)
-				if !learn {
-					events = append(events, fmt.Sprintf("failover_from:%s(status=%d)", u.Name, status))
-					if resp != nil {
-						resp.Body.Close()
-					}
-					continue
-				}
-				// learn observes but does not shift traffic: the client sees this.
-				events = append(events, fmt.Sprintf("would_failover_from:%s(status=%d)", u.Name, status))
-				if resp != nil {
-					_ = copyResponse(w, resp)
-				} else {
-					status = http.StatusBadGateway
-					http.Error(w, `{"error":{"message":"upstream unavailable"}}`, status)
-				}
-				logDec(u.Name, status)
-				return
-			}
-			werr := a.writeResponse(w, resp, meta)
-			cell.Record(time.Since(tryStart), werr != nil)
-			slog.Info("proxied", "upstream", u.Name, "cell", cell.State().String(),
-				"method", r.Method, "path", r.URL.Path, "status", resp.StatusCode,
-				"dur", time.Since(tryStart).Round(time.Millisecond), "midstream_err", werr)
-			logDec(u.Name, resp.StatusCode)
+			logDec(u.Name, status)
 			return
 		}
-		http.Error(w, `{"error":{"message":"all upstreams unavailable"}}`, http.StatusBadGateway)
-		logDec("", http.StatusBadGateway)
-	})
+		werr := a.writeResponse(w, resp, meta)
+		cell.Record(time.Since(tryStart), werr != nil)
+		slog.Info("proxied", "upstream", u.Name, "cell", cell.State().String(),
+			"method", r.Method, "path", r.URL.Path, "status", resp.StatusCode,
+			"dur", time.Since(tryStart).Round(time.Millisecond), "midstream_err", werr)
+		logDec(u.Name, resp.StatusCode)
+		return
+	}
+	http.Error(w, `{"error":{"message":"all upstreams unavailable"}}`, http.StatusBadGateway)
+	logDec("", http.StatusBadGateway)
 }
 
 func main() {

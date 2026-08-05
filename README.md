@@ -24,6 +24,17 @@ its judgment matches yours, then set `mode: action` and it starts acting.
 Same rollout story as the Capital One resiliency engine this mirrors:
 automation earns trust by showing its work first.
 
+## Canary evals
+
+Availability checks can't see a provider that answers `200 OK` with garbage —
+truncating, refusing, or hallucinating structure. With `canary:` configured,
+a background loop sends every upstream a small fixed prompt set
+([canary/prompts.yaml](canary/prompts.yaml): arithmetic, JSON compliance)
+each interval and grades the answers. Failures feed the same health cells as
+real traffic, so a lobotomized provider is ejected within one cycle and a
+recovered one earns its way back. This is what separates the router from a
+generic load balancer: it routes on *quality*, not just liveness.
+
 ## Failover demo
 
 ![failover demo: primary killed mid-traffic, requests shift to backup with zero client errors, half-open probe recovers primary](docs/failover-demo.gif)

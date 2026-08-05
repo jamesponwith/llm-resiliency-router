@@ -1,0 +1,10 @@
+# Canary prompt set — small, cheap, and objective. These check *quality*, not
+# availability: a provider can answer 200 OK to all of them and still fail.
+# Keep at least health.eject_after entries so a fully lobotomized provider is
+# ejected within a single cycle.
+- prompt: "What is 7 times 6? Reply with just the number."
+  contains: "42"
+- prompt: 'Reply with exactly this JSON object and nothing else: {"ok": true}'
+  json: true
+- prompt: "Spell the word cat backwards. Reply with just the word."
+  contains: "tac"

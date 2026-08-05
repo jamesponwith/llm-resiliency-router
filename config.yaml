@@ -15,8 +15,12 @@ upstreams:
   # - name: openai
   #   kind: openai
   #   api_key_env: OPENAI_API_KEY
+# canary: # background quality probes — a provider serving 200s of garbage gets ejected
+#   interval: 5m
+#   model: llama3.2 # requested-model name; per-upstream models mapping applies
+#   prompts: canary/prompts.yaml
 health:
-  eject_after: 3 # consecutive hard failures (5xx/429/timeout) before ejection
+  eject_after: 3 # consecutive hard failures (5xx/429/timeout/canary miss) before ejection
   window: 60s # p95 window for the degraded signal
   degrade_p95: 8s # p95 above this marks the cell degraded (log-only until M3)
   probe_interval: 15s # half-open probe cadence while ejected
