@@ -168,6 +168,7 @@ func TestFailover(t *testing.T) {
 	defer backup.Close()
 
 	cfg := &Config{
+		Mode:      "action",
 		Upstreams: []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
 		Health:    testHealth(),
 	}
@@ -204,6 +205,7 @@ func TestEjectionStopsTraffic(t *testing.T) {
 	defer backup.Close()
 
 	cfg := &Config{
+		Mode:      "action",
 		Upstreams: []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
 		Health:    testHealth(),
 	}
@@ -223,6 +225,112 @@ func TestEjectionStopsTraffic(t *testing.T) {
 	}
 }
 
+// Component test: learn mode runs the decision loop but does not act — the
+// first upstream serves everything, failures reach the client, and the
+// would-be decisions land in the JSONL log.
+func TestLearnModeObservesOnly(t *testing.T) {
+	var backupHits atomic.Int64
+	down := httptest.NewServer(chaos.Handler("primary", chaos.Profile{FailEvery: 1}))
+	defer down.Close()
+	backupH := chaos.Handler("backup", chaos.Profile{})
+	backup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backupHits.Add(1)
+		backupH.ServeHTTP(w, r)
+	}))
+	defer backup.Close()
+
+	logPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	cfg := &Config{
+		Mode:        "learn",
+		DecisionLog: logPath,
+		Upstreams:   []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
+		Health:      testHealth(),
+	}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	for i := 0; i < 4; i++ {
+		resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 500 {
+			t.Fatalf("req %d: status = %d — learn mode must not hide the failure", i, resp.StatusCode)
+		}
+	}
+	if h := backupHits.Load(); h != 0 {
+		t.Errorf("backup hit %d times — learn mode must not shift traffic", h)
+	}
+
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("decision log has %d lines, want 4", len(lines))
+	}
+	var first, last decision
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(lines[3]), &last); err != nil {
+		t.Fatal(err)
+	}
+	if first.Mode != "learn" || first.Chose != "primary" {
+		t.Errorf("first decision = %+v, want learn/primary", first)
+	}
+	if !strings.Contains(strings.Join(first.Events, " "), "would_failover_from:primary") {
+		t.Errorf("first events = %v, want would_failover_from:primary", first.Events)
+	}
+	// after 3 hard failures the cell is ejected; the 4th decision records the would-be skip
+	if !strings.Contains(strings.Join(last.Events, " "), "would_skip:primary(ejected)") {
+		t.Errorf("last events = %v, want would_skip:primary(ejected)", last.Events)
+	}
+}
+
+// Component test: action mode records the failover it actually performed.
+func TestActionModeDecisionLog(t *testing.T) {
+	down := httptest.NewServer(chaos.Handler("primary", chaos.Profile{FailEvery: 1}))
+	defer down.Close()
+	backup := httptest.NewServer(chaos.Handler("backup", chaos.Profile{}))
+	defer backup.Close()
+
+	logPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	cfg := &Config{
+		Mode:        "action",
+		DecisionLog: logPath,
+		Upstreams:   []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
+		Health:      testHealth(),
+	}
+	srv := httptest.NewServer(handler(cfg))
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dec decision
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(b))), &dec); err != nil {
+		t.Fatal(err)
+	}
+	if dec.Mode != "action" || dec.Chose != "backup" || dec.Status != 200 {
+		t.Errorf("decision = %+v, want action/backup/200", dec)
+	}
+	if !strings.Contains(strings.Join(dec.Events, " "), "failover_from:primary") {
+		t.Errorf("events = %v, want failover_from:primary", dec.Events)
+	}
+}
+
 // Component test: streaming works through failover — dead primary, backup streams.
 func TestFailoverStreaming(t *testing.T) {
 	down := httptest.NewServer(chaos.Handler("primary", chaos.Profile{FailEvery: 1}))
@@ -231,6 +339,7 @@ func TestFailoverStreaming(t *testing.T) {
 	defer backup.Close()
 
 	cfg := &Config{
+		Mode:      "action",
 		Upstreams: []Upstream{{Name: "primary", URL: down.URL}, {Name: "backup", URL: backup.URL}},
 		Health:    testHealth(),
 	}
