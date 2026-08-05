@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -64,14 +65,13 @@ func TestCanaryEjectsLobotomizedProvider(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := make([]byte, 4096)
-		n, _ := resp.Body.Read(buf)
+		b, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if strings.Contains(string(buf[:n]), `"good"`) {
+		if strings.Contains(string(b), `"good"`) {
 			return // canary ejected lobo; the healthy backup serves
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("lobotomized provider never ejected; last body: %s", buf[:n])
+			t.Fatalf("lobotomized provider never ejected; last body: %s", b)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
