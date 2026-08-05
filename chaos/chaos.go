@@ -30,6 +30,7 @@ type Profile struct {
 	FailEvery int      `yaml:"fail_every"` // every Nth request → 500 (0 = never, 1 = always)
 	Latency   Duration `yaml:"latency"`    // added before every response
 	Hang      bool     `yaml:"hang"`       // accept the request, never respond
+	Stall     bool     `yaml:"stall"`      // send 200 + headers, then never a body byte
 	Reply     string   `yaml:"reply"`      // completion text (default canned)
 }
 
@@ -60,6 +61,13 @@ func Handler(name string, p Profile) http.Handler {
 		time.Sleep(time.Duration(p.Latency))
 		if p.Hang {
 			<-r.Context().Done()
+			return
+		}
+		if p.Stall {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done() // headers out, first token never comes
 			return
 		}
 		if k := n.Add(1); p.FailEvery > 0 && k%int64(p.FailEvery) == 0 {

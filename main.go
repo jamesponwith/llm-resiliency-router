@@ -43,6 +43,7 @@ type Config struct {
 	Mode        string       `yaml:"mode"` // learn (observe + log only, default) | action (shift traffic)
 	Listen      string       `yaml:"listen"`
 	DecisionLog string       `yaml:"decision_log"` // JSONL path; "" disables (loadConfig defaults it)
+	HedgeAfter  Duration     `yaml:"hedge_after"`  // no first token by then → race the next upstream; 0 = off (spends money)
 	Upstreams   []Upstream   `yaml:"upstreams"`    // priority order: first is preferred
 	Health      HealthConfig `yaml:"health"`
 	Canary      CanaryConfig `yaml:"canary"`
@@ -139,6 +140,18 @@ func newRouter(c *Config) *router {
 	return rt
 }
 
+// nextAllowed returns the first upstream index >= start whose cell admits
+// traffic, or -1. Allow may consume that cell's half-open probe slot, so
+// callers must actually send to the returned index.
+func (rt *router) nextAllowed(start int) int {
+	for j := start; j < len(rt.cfg.Upstreams); j++ {
+		if rt.cells[j].Allow() {
+			return j
+		}
+	}
+	return -1
+}
+
 // ServeHTTP tries upstreams in config order, skipping ejected cells. A hard
 // failure (transport error, timeout, 429, 5xx) before anything is written to
 // the client falls through to the next upstream — the client never sees it.
@@ -160,7 +173,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rt.dlog.write(decision{Mode: c.Mode, Path: r.URL.Path, Chose: chose,
 			Status: status, DurMS: time.Since(start).Milliseconds(), Events: events})
 	}
-	for i := range c.Upstreams {
+	for i := 0; i < len(c.Upstreams); i++ {
 		u, cell := c.Upstreams[i], rt.cells[i]
 		if !rt.learn && !cell.Allow() {
 			events = append(events, "skip:"+u.Name+"("+cell.State().String()+")")
@@ -169,6 +182,31 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if rt.learn {
 			if s := cell.State(); s == Ejected || s == HalfOpen {
 				events = append(events, "would_skip:"+u.Name+"("+s.String()+")")
+			}
+		}
+		if !rt.learn && rt.cfg.HedgeAfter > 0 {
+			if j := rt.nextAllowed(i + 1); j >= 0 {
+				res, fired := rt.hedged(r, body, meta, i, j)
+				if fired {
+					events = append(events, "hedge_fired:"+c.Upstreams[j].Name)
+				}
+				if !res.ok() {
+					// both attempts already recorded their failures; resume after j
+					events = append(events, fmt.Sprintf("hedge_pair_failed:%s,%s", u.Name, c.Upstreams[j].Name))
+					i = j
+					continue
+				}
+				wu, wcell := c.Upstreams[res.i], rt.cells[res.i]
+				if res.i != i {
+					events = append(events, "hedge_won:"+wu.Name)
+				}
+				werr := adapterFor(wu).writeResponse(w, res.resp, meta)
+				wcell.Record(res.dur, werr != nil)
+				slog.Info("proxied", "upstream", wu.Name, "cell", wcell.State().String(),
+					"method", r.Method, "path", r.URL.Path, "status", res.resp.StatusCode,
+					"dur", time.Since(start).Round(time.Millisecond), "midstream_err", werr)
+				logDec(wu.Name, res.resp.StatusCode)
+				return
 			}
 		}
 		a := adapterFor(u)

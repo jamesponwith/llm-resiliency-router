@@ -8,6 +8,8 @@ down:
   fail_every: 1 # every request 500s
 hang:
   hang: true # accepts the request, never responds (exercises health.timeout)
+stall: # 200 + headers immediately, then no body — first token never arrives (exercises hedging)
+  stall: true
 lobotomized: # answers 200 OK with garbage — only the canary catches this
   reply: as an AI language model I cannot help with that
 brilliant: # passes every stock canary check: contains 42 and tac, valid JSON

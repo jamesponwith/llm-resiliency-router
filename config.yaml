@@ -5,6 +5,7 @@
 mode: learn # learn = observe + log decisions only; flip to action once decisions.jsonl looks right
 listen: :8484
 decision_log: decisions.jsonl # every routing decision with its inputs, one JSON per line
+hedge_after: 0 # e.g. 1500ms: no first token by then → race the next upstream, first token wins. Costs duplicate requests — off by default
 upstreams:
   - name: local
     kind: ollama # openai-compatible; url defaults to http://localhost:11434
