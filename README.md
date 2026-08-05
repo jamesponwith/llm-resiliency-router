@@ -26,6 +26,8 @@ automation earns trust by showing its work first.
 
 ## Canary evals
 
+![canary demo: a lobotomized provider answering 200 OK with garbage is ejected on quality within one canary cycle](docs/canary-demo.gif)
+
 Availability checks can't see a provider that answers `200 OK` with garbage —
 truncating, refusing, or hallucinating structure. With `canary:` configured,
 a background loop sends every upstream a small fixed prompt set
@@ -33,7 +35,9 @@ a background loop sends every upstream a small fixed prompt set
 each interval and grades the answers. Failures feed the same health cells as
 real traffic, so a lobotomized provider is ejected within one cycle and a
 recovered one earns its way back. This is what separates the router from a
-generic load balancer: it routes on *quality*, not just liveness.
+generic load balancer: it routes on *quality*, not just liveness. Run the
+demo above yourself: `go build -o bin/router . && go build -o bin/chaos
+./cmd/chaos && bash demo/canary-demo.sh`.
 
 ## Hedged requests
 
