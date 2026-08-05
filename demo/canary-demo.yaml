@@ -1,0 +1,18 @@
+# Canary demo config: primary is a lobotomized chaos provider (200 OK,
+# garbage), backup passes every check. The canary ejects primary on quality.
+mode: action
+listen: :8484
+decision_log: decisions.jsonl
+upstreams:
+  - name: primary
+    url: http://localhost:9001
+  - name: backup
+    url: http://localhost:9002
+health:
+  eject_after: 3
+  probe_interval: 30s # longer than the demo so a half-open probe doesn't flip mid-recording
+  timeout: 2s
+canary:
+  interval: 5s
+  model: m
+  prompts: canary/prompts.yaml
