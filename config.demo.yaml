@@ -1,6 +1,7 @@
 # Failover demo config: two chaos providers (see README). Kill :9001 and
 # watch the model field flip to backup; restart it and traffic returns
 # within probe_interval.
+mode: action # the demo is the point of action mode: traffic actually shifts
 listen: :8484
 upstreams:
   - name: primary

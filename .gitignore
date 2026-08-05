@@ -6,3 +6,4 @@ dist/
 *.db
 .beads-credential-key
 bin/
+decisions.jsonl

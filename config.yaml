@@ -2,7 +2,9 @@
 # health.eject_after times in a row is ejected, then probed with real traffic
 # every probe_interval until it recovers. url is the provider ORIGIN only
 # (no /v1 suffix) — the client's path is forwarded verbatim.
+mode: learn # learn = observe + log decisions only; flip to action once decisions.jsonl looks right
 listen: :8484
+decision_log: decisions.jsonl # every routing decision with its inputs, one JSON per line
 upstreams:
   - name: local
     kind: ollama # openai-compatible; url defaults to http://localhost:11434

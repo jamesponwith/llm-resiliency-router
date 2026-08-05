@@ -1,7 +1,7 @@
 // llm-resiliency-router: an OpenAI-compatible reverse proxy for LLM upstreams.
-// M2: priority failover — upstreams tried in config order, each behind a
-// health cell (ejection + half-open probes). Learn/Action modes, canary
-// evals, and hedging arrive in M3 (see SPEC.md).
+// Priority failover across health cells (ejection + half-open probes), with
+// learn/action modes and a JSONL decision log. Canary evals and hedging
+// arrive later in M3 (see SPEC.md).
 package main
 
 import (
@@ -40,9 +40,11 @@ type HealthConfig struct {
 }
 
 type Config struct {
-	Listen    string       `yaml:"listen"`
-	Upstreams []Upstream   `yaml:"upstreams"` // priority order: first is preferred
-	Health    HealthConfig `yaml:"health"`
+	Mode        string       `yaml:"mode"` // learn (observe + log only, default) | action (shift traffic)
+	Listen      string       `yaml:"listen"`
+	DecisionLog string       `yaml:"decision_log"` // JSONL path; "" disables (loadConfig defaults it)
+	Upstreams   []Upstream   `yaml:"upstreams"`    // priority order: first is preferred
+	Health      HealthConfig `yaml:"health"`
 }
 
 var defaultURLs = map[string]string{
@@ -60,7 +62,12 @@ func loadConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	c.Mode = cmp.Or(c.Mode, "learn") // ship learn first; flip to action when the decisions look right
+	if c.Mode != "learn" && c.Mode != "action" {
+		return nil, fmt.Errorf("%s: mode must be learn or action, got %q", path, c.Mode)
+	}
 	c.Listen = cmp.Or(c.Listen, ":8484")
+	c.DecisionLog = cmp.Or(c.DecisionLog, "decisions.jsonl")
 	c.Health.EjectAfter = cmp.Or(c.Health.EjectAfter, 3)
 	c.Health.Window = cmp.Or(c.Health.Window, Duration(60*time.Second))
 	c.Health.ProbeInterval = cmp.Or(c.Health.ProbeInterval, Duration(15*time.Second))
@@ -90,14 +97,19 @@ func loadConfig(path string) (*Config, error) {
 // handler tries upstreams in config order, skipping ejected cells. A hard
 // failure (transport error, timeout, 429, 5xx) before anything is written to
 // the client falls through to the next upstream — the client never sees it.
+// In learn mode the decision loop runs but does not act: the first upstream
+// serves every request, would-be skips and failovers are only logged, and
+// the client sees any failure the engine would have hidden.
 func handler(c *Config) http.Handler {
 	cells := make([]*Cell, len(c.Upstreams))
 	for i := range c.Upstreams {
 		cells[i] = newCell(c.Health)
 	}
+	dlog := newDecisionLog(c.DecisionLog)
 	client := &http.Client{Transport: &http.Transport{
 		ResponseHeaderTimeout: time.Duration(c.Health.Timeout),
 	}}
+	learn := c.Mode != "action" // a zero-value Config counts as learn, same as loadConfig
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -106,33 +118,62 @@ func handler(c *Config) http.Handler {
 		}
 		var meta chatMeta
 		_ = json.Unmarshal(body, &meta) // non-JSON or empty body: zero meta is fine
+		start := time.Now()
+		var events []string
+		logDec := func(chose string, status int) {
+			dlog.write(decision{Mode: c.Mode, Path: r.URL.Path, Chose: chose,
+				Status: status, DurMS: time.Since(start).Milliseconds(), Events: events})
+		}
 		for i := range c.Upstreams {
 			u, cell := c.Upstreams[i], cells[i]
-			if !cell.Allow() {
+			if !learn && !cell.Allow() {
+				events = append(events, "skip:"+u.Name+"("+cell.State().String()+")")
 				continue
 			}
-			start := time.Now()
+			if learn {
+				if s := cell.State(); s == Ejected || s == HalfOpen {
+					events = append(events, "would_skip:"+u.Name+"("+s.String()+")")
+				}
+			}
 			a := adapterFor(u)
+			tryStart := time.Now()
 			resp, err := a.roundTrip(client, r, u, body, meta)
 			if err != nil || resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 				status := 0
 				if resp != nil {
 					status = resp.StatusCode
-					resp.Body.Close()
 				}
-				cell.Record(time.Since(start), true)
+				cell.Record(time.Since(tryStart), true)
 				slog.Warn("upstream hard failure", "upstream", u.Name, "cell", cell.State().String(),
 					"status", status, "err", err)
-				continue
+				if !learn {
+					events = append(events, fmt.Sprintf("failover_from:%s(status=%d)", u.Name, status))
+					if resp != nil {
+						resp.Body.Close()
+					}
+					continue
+				}
+				// learn observes but does not shift traffic: the client sees this.
+				events = append(events, fmt.Sprintf("would_failover_from:%s(status=%d)", u.Name, status))
+				if resp != nil {
+					_ = copyResponse(w, resp)
+				} else {
+					status = http.StatusBadGateway
+					http.Error(w, `{"error":{"message":"upstream unavailable"}}`, status)
+				}
+				logDec(u.Name, status)
+				return
 			}
 			werr := a.writeResponse(w, resp, meta)
-			cell.Record(time.Since(start), werr != nil)
+			cell.Record(time.Since(tryStart), werr != nil)
 			slog.Info("proxied", "upstream", u.Name, "cell", cell.State().String(),
 				"method", r.Method, "path", r.URL.Path, "status", resp.StatusCode,
-				"dur", time.Since(start).Round(time.Millisecond), "midstream_err", werr)
+				"dur", time.Since(tryStart).Round(time.Millisecond), "midstream_err", werr)
+			logDec(u.Name, resp.StatusCode)
 			return
 		}
 		http.Error(w, `{"error":{"message":"all upstreams unavailable"}}`, http.StatusBadGateway)
+		logDec("", http.StatusBadGateway)
 	})
 }
 
@@ -144,7 +185,8 @@ func main() {
 		slog.Error("config", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("listening", "addr", cfg.Listen, "upstreams", len(cfg.Upstreams), "first", cfg.Upstreams[0].Name)
+	slog.Info("listening", "addr", cfg.Listen, "mode", cfg.Mode,
+		"upstreams", len(cfg.Upstreams), "first", cfg.Upstreams[0].Name)
 	if err := http.ListenAndServe(cfg.Listen, handler(cfg)); err != nil {
 		slog.Error("server", "err", err)
 		os.Exit(1)

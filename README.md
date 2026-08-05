@@ -15,6 +15,15 @@ passthrough; `anthropic` translated to `/v1/messages`).
 go run . -config config.yaml   # defaults to ollama on localhost:11434
 ```
 
+## Modes
+
+The router ships in **learn** mode: the decision engine runs — health cells,
+would-be skips and failovers — but traffic is never shifted; every decision
+lands in `decisions.jsonl` with the inputs behind it. Watch that log until
+its judgment matches yours, then set `mode: action` and it starts acting.
+Same rollout story as the Capital One resiliency engine this mirrors:
+automation earns trust by showing its work first.
+
 ## Failover demo
 
 ![failover demo: primary killed mid-traffic, requests shift to backup with zero client errors, half-open probe recovers primary](docs/failover-demo.gif)
