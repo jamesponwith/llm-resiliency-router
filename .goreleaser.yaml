@@ -1,0 +1,14 @@
+# goreleaser v2 — project name is inferred from the git remote.
+# ponytail: static binaries for the platforms a personal deploy actually
+# touches; add windows or packages (brew, deb) only when someone asks.
+version: 2
+
+builds:
+  - main: .
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+changelog:
+  filters:
+    exclude: ["^bd:", "^chore"]

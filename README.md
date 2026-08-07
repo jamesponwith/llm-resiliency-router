@@ -15,6 +15,11 @@ passthrough; `anthropic` translated to `/v1/messages`).
 go run . -config config.yaml   # defaults to ollama on localhost:11434
 ```
 
+Or grab a release binary: `./deploy.sh` fetches the latest
+[GitHub Release](https://github.com/jamesponwith/llm-resiliency-router/releases)
+for this platform into `/usr/local/bin` (set `DEPLOY_DIR` to override) and
+restarts the `llm-resiliency-router` systemd unit if one is enabled.
+
 ## Modes
 
 The router ships in **learn** mode: the decision engine runs — health cells,
