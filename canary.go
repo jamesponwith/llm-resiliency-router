@@ -81,9 +81,11 @@ func (rt *router) canaryOne(u Upstream, cell *Cell) {
 		case err != nil:
 			events = append(events, fmt.Sprintf("canary_fail:#%d(%v)", n, err))
 			cell.Record(time.Since(askStart), true)
+			rt.m.canaryFails.WithLabelValues(u.Name).Inc()
 		case !ck.pass(content):
 			events = append(events, fmt.Sprintf("canary_fail:#%d(bad content %.40q)", n, content))
 			cell.Record(time.Since(askStart), true)
+			rt.m.canaryFails.WithLabelValues(u.Name).Inc()
 		default:
 			cell.Record(time.Since(askStart), false)
 		}

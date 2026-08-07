@@ -111,6 +111,8 @@ type router struct {
 	dlog   *decisionLog
 	client *http.Client
 	learn  bool
+	m      *metrics
+	promh  http.Handler
 }
 
 func handler(c *Config) http.Handler { return newRouter(c) }
@@ -124,7 +126,9 @@ func newRouter(c *Config) *router {
 			ResponseHeaderTimeout: time.Duration(c.Health.Timeout),
 		}},
 		learn: c.Mode != "action", // a zero-value Config counts as learn, same as loadConfig
+		m:     newMetrics(),
 	}
+	rt.promh = rt.metricsHandler()
 	for i := range c.Upstreams {
 		rt.cells[i] = newCell(c.Health)
 	}
@@ -159,6 +163,17 @@ func (rt *router) nextAllowed(start int) int {
 // serves every request, would-be skips and failovers are only logged, and
 // the client sees any failure the engine would have hidden.
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path { // router-local endpoints; everything else is proxied
+	case "/metrics":
+		rt.promh.ServeHTTP(w, r)
+		return
+	case "/status":
+		rt.statusPage(w, r)
+		return
+	case "/status.json":
+		rt.statusJSON(w, r)
+		return
+	}
 	c := rt.cfg
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -189,6 +204,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				res, fired := rt.hedged(r, body, meta, i, j)
 				if fired {
 					events = append(events, "hedge_fired:"+c.Upstreams[j].Name)
+					rt.m.hedgeFired.Inc()
 				}
 				if !res.ok() {
 					// both attempts already recorded their failures; resume after j
@@ -199,9 +215,12 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				wu, wcell := c.Upstreams[res.i], rt.cells[res.i]
 				if res.i != i {
 					events = append(events, "hedge_won:"+wu.Name)
+					rt.m.hedgeWon.Inc()
 				}
 				werr := adapterFor(wu).writeResponse(w, res.resp, meta)
 				wcell.Record(res.dur, werr != nil)
+				rt.m.requests.WithLabelValues(wu.Name, "ok").Inc()
+				rt.m.duration.WithLabelValues(wu.Name).Observe(res.dur.Seconds())
 				slog.Info("proxied", "upstream", wu.Name, "cell", wcell.State().String(),
 					"method", r.Method, "path", r.URL.Path, "status", res.resp.StatusCode,
 					"dur", time.Since(start).Round(time.Millisecond), "midstream_err", werr)
@@ -218,10 +237,12 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				status = resp.StatusCode
 			}
 			cell.Record(time.Since(tryStart), true)
+			rt.m.requests.WithLabelValues(u.Name, "hard_fail").Inc()
 			slog.Warn("upstream hard failure", "upstream", u.Name, "cell", cell.State().String(),
 				"status", status, "err", err)
 			if !rt.learn {
 				events = append(events, fmt.Sprintf("failover_from:%s(status=%d)", u.Name, status))
+				rt.m.failovers.WithLabelValues(u.Name).Inc()
 				if resp != nil {
 					resp.Body.Close()
 				}
@@ -240,6 +261,8 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		werr := a.writeResponse(w, resp, meta)
 		cell.Record(time.Since(tryStart), werr != nil)
+		rt.m.requests.WithLabelValues(u.Name, "ok").Inc()
+		rt.m.duration.WithLabelValues(u.Name).Observe(time.Since(tryStart).Seconds())
 		slog.Info("proxied", "upstream", u.Name, "cell", cell.State().String(),
 			"method", r.Method, "path", r.URL.Path, "status", resp.StatusCode,
 			"dur", time.Since(tryStart).Round(time.Millisecond), "midstream_err", werr)

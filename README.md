@@ -51,6 +51,13 @@ then is raced against the next healthy upstream — first token wins, the
 loser is cancelled and not blamed by the health model. Tail-latency
 insurance that costs duplicate requests, so it's off by default.
 
+## Telemetry
+
+Three router-local endpoints (everything else is proxied): Prometheus
+`/metrics` (requests, latencies, cell states, failovers, hedge and canary
+outcomes), `/status.json`, and `/status` — a zero-dependency terminal-styled
+page showing live cell states and the last 20 routing decisions.
+
 ## Failover demo
 
 ![failover demo: primary killed mid-traffic, requests shift to backup with zero client errors, half-open probe recovers primary](docs/failover-demo.gif)
