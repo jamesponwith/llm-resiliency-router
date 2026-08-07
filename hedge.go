@@ -54,6 +54,7 @@ func (rt *router) attempt(ctx context.Context, i int, r *http.Request, body []by
 			status = res.resp.StatusCode
 		}
 		cell.Record(time.Since(start), true)
+		rt.m.requests.WithLabelValues(u.Name, "hard_fail").Inc()
 		slog.Warn("upstream hard failure", "upstream", u.Name, "cell", cell.State().String(),
 			"status", status, "err", res.err)
 	}
