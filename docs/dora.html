@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DORA-lite</title>
+<style>
+body{background:#0b0e0c;color:#c7d0c9;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:720px;margin:2rem auto;padding:0 1rem}
+h1{color:#7ee787;font-size:16px;font-weight:600}h1::before{content:"$ ";color:#8b949e}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid #1c231e;padding:1rem}
+.card b{display:block;font-size:22px;color:#7ee787;font-weight:600}
+.card span{color:#8b949e}
+footer{color:#30363d}
+#meta{color:#8b949e}
+</style>
+<h1>DORA-lite</h1>
+<div id="meta"></div>
+<div class="grid" id="g"></div>
+<footer>weekly snapshot by learn.yml · trend = git history of dora.json</footer>
+<script>
+function fmt(v, unit){ return v ? v.toFixed(1) + unit : "n/a"; }
+fetch("dora.json").then(function(r){ return r.json(); }).then(function(d){
+  document.getElementById("meta").textContent = d.repo + " · " + d.generated_at;
+  var df = d.deploy_frequency, lt = d.lead_time_hours,
+      cf = d.change_failure_rate, mt = d.mttr_hours;
+  document.getElementById("g").innerHTML =
+    "<div class='card'><b>" + fmt(df.per_week, "/wk") + "</b><span>deploy frequency<br>" +
+      df.releases_total + " releases, " + df.releases_last_30d + " in 30d</span></div>" +
+    "<div class='card'><b>" + fmt(lt.median, "h") + "</b><span>lead time (median)<br>" +
+      lt.samples + " samples</span></div>" +
+    "<div class='card'><b>" + (cf.releases ? (cf.rate * 100).toFixed(0) + "%" : "n/a") +
+      "</b><span>change-failure rate<br>" + cf.incidents + " incidents / " +
+      cf.releases + " releases</span></div>" +
+    "<div class='card'><b>" + fmt(mt.median, "h") + "</b><span>MTTR (median)<br>" +
+      mt.samples + " samples</span></div>";
+});
+</script>
