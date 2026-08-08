@@ -1,0 +1,22 @@
+{
+  "change_failure_rate": {
+    "incidents": 0,
+    "rate": 0,
+    "releases": 1
+  },
+  "deploy_frequency": {
+    "per_week": 0,
+    "releases_last_30d": 1,
+    "releases_total": 1
+  },
+  "generated_at": "2026-08-08T16:43:18Z",
+  "lead_time_hours": {
+    "median": 0,
+    "samples": 0
+  },
+  "mttr_hours": {
+    "median": 0,
+    "samples": 0
+  },
+  "repo": "jamesponwith/llm-resiliency-router"
+}
