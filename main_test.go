@@ -69,6 +69,26 @@ func TestLoadConfigHealthDefaults(t *testing.T) {
 	}
 }
 
+// waitDecisionLines polls for the decision log to contain n complete lines —
+// the handler writes the decision after the response reaches the client, so
+// an immediate read races it.
+func waitDecisionLines(t *testing.T, path string, n int) []string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		b, _ := os.ReadFile(path)
+		s := strings.TrimSpace(string(b))
+		lines := strings.Split(s, "\n")
+		if s != "" && len(lines) >= n && strings.HasSuffix(s, "}") {
+			return lines
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("decision log %s: want %d lines, have %q", path, n, b)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func testHealth() HealthConfig {
 	return HealthConfig{
 		EjectAfter:    3,
@@ -264,14 +284,7 @@ func TestLearnModeObservesOnly(t *testing.T) {
 		t.Errorf("backup hit %d times — learn mode must not shift traffic", h)
 	}
 
-	b, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if len(lines) != 4 {
-		t.Fatalf("decision log has %d lines, want 4", len(lines))
-	}
+	lines := waitDecisionLines(t, logPath, 4)
 	var first, last decision
 	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
 		t.Fatal(err)
@@ -315,12 +328,9 @@ func TestActionModeDecisionLog(t *testing.T) {
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
-	b, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	lines := waitDecisionLines(t, logPath, 1)
 	var dec decision
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(b))), &dec); err != nil {
+	if err := json.Unmarshal([]byte(lines[0]), &dec); err != nil {
 		t.Fatal(err)
 	}
 	if dec.Mode != "action" || dec.Chose != "backup" || dec.Status != 200 {

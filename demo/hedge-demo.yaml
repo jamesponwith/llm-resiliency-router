@@ -1,0 +1,14 @@
+# Hedging demo config: primary stalls (200 + headers, then silence), backup
+# is healthy. hedge_after 1s turns a would-be hang into a 1s answer.
+mode: action
+listen: :8484
+hedge_after: 1s
+upstreams:
+  - name: primary
+    url: http://localhost:9001
+  - name: backup
+    url: http://localhost:9002
+health:
+  eject_after: 3
+  probe_interval: 30s
+  timeout: 10s # response-header timeout; a stall sends headers, so hedging is the only rescue
