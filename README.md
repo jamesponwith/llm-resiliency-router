@@ -5,9 +5,31 @@ keeps requests flowing through provider outages, latency spikes, and quality
 regressions. Point any OpenAI SDK at it by changing `base_url`; failover —
 including mid-stream — is the router's problem, not the client's.
 
-Full design: [SPEC.md](SPEC.md). Status: M2 — priority failover with health
-cells (ejection + half-open probes), three provider kinds (`openai`, `ollama`
-passthrough; `anthropic` translated to `/v1/messages`).
+Full design: [SPEC.md](SPEC.md). Released: [v0.1.0](https://github.com/jamesponwith/llm-resiliency-router/releases).
+
+```
+client (any OpenAI SDK, base_url → the router)
+   │  POST /v1/chat/completions (JSON + SSE)          /status  /metrics
+   ▼                                                     ▼
+┌───────────────────────── router ─────────────────────────────────┐
+│ modes: LEARN (observe + log only) / ACTION (shift traffic)       │
+│                                                                  │
+│ policy: priority failover ──► first allowed cell, next on hard   │
+│         hedging (opt-in) ──► no first token by hedge_after?      │
+│                              race the next cell, loser cancelled │
+│                                                                  │
+│ health cell per upstream (ring of outcomes, hysteresis):         │
+│   healthy → degraded → ejected → half-open probe → healthy       │
+│      ▲ fed by real traffic AND background canary evals           │
+│        (fixed prompts, graded: a 200-with-garbage gets ejected)  │
+│                                                                  │
+│ every decision → decisions.jsonl (audit) + /status + /metrics    │
+└───────┬──────────────────┬──────────────────┬────────────────────┘
+        ▼                  ▼                  ▼
+   anthropic            openai            ollama (local, free
+  (translated to    (passthrough)         last-resort failover)
+   /v1/messages)
+```
 
 ## Run
 
@@ -45,6 +67,8 @@ demo above yourself: `go build -o bin/router . && go build -o bin/chaos
 ./cmd/chaos && bash demo/canary-demo.sh`.
 
 ## Hedged requests
+
+![hedging demo: a stalled primary sends 200 + headers then nothing; the hedge races the backup after 1s and the client gets an answer in 1s instead of hanging](docs/hedge-demo.gif)
 
 With `hedge_after: 1500ms`, a request whose first token hasn't arrived by
 then is raced against the next healthy upstream — first token wins, the
