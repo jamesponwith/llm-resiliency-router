@@ -7,3 +7,6 @@ dist/
 .beads-credential-key
 bin/
 decisions.jsonl
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
