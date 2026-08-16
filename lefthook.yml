@@ -14,4 +14,4 @@ pre-commit:
 pre-push:
   commands:
     ai-review:
-      run: command -v claude >/dev/null || exit 0; claude -p "/ponytail-review origin/main...HEAD" || true
+      run: command -v claude >/dev/null || exit 0; claude -p "/flywheel-review origin/main...HEAD" || true

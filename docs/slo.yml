@@ -1,0 +1,21 @@
+# Operate stage contract (ADR 0002). tools/watch reads this file, probes the
+# target, and files an `incident`-labelled GitHub issue on a sustained breach —
+# the same label tools/dora already reads for change-failure rate and MTTR.
+#
+# Flat key: value only. See the ponytail note in tools/watch/main.go.
+
+# What to probe. Must serve the /healthz contract: 200 + JSON
+# {"status":"ok","version":"v0.1.0","uptime_s":123}
+# Set to the router's real deployment before enabling operate.yml. Until the
+# linux box is up (fw-wma.6) this stays unreachable and files nothing useful.
+url: https://example.invalid/healthz
+
+# How long a breach must persist before it is an incident, and how long a
+# recovery must hold before the incident is closed. Both exist to stop a single
+# blip becoming a page — and a flapping target becoming a hundred issues.
+breach_after: 3m
+recover_after: 5m
+
+# Budgets. A response slower than latency_budget counts as a breach even at 200.
+latency_budget: 2s
+availability_target: 0.99

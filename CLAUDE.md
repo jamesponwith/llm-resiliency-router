@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Go project built inside the personal agentic flywheel: Intent → Build → Validate → Release → Learn.
+Go project built inside the personal agentic flywheel: Intent → Build → Validate → Release → Operate → Learn.
 
 ## Before writing code (Intent)
 
@@ -78,3 +78,22 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
 <!-- END BEADS INTEGRATION -->
+
+## Running in production (Operate)
+
+- `docs/slo.yml` is the contract. Point `url` at the real deployment before
+  enabling `.github/workflows/operate.yml` — until the box is up it probes
+  `example.invalid` and files nothing useful.
+- The router already serves `/status` and `/metrics`; Operate additionally needs
+  `/healthz` returning `{"status":"ok","version":...,"uptime_s":...}`. The
+  version is how Learn attributes an incident to a release.
+- Incidents are filed and closed by the shared prober, never by hand.
+
+## Agents
+
+- Bound by autonomy boundaries (agentic-flywheel ADR 0003): branch, commit,
+  gate, PR, comment, reserve territory — never merge, tag, deploy, force-push,
+  or read secrets.
+- `tools/flywheel/guard.sh check` is the kill switch; check it before acting.
+- `/flywheel-next` is the unit of autonomous work: one bead, one worktree, one
+  PR, then stop. `/flywheel-review` runs the three-lens panel at pre-push.
