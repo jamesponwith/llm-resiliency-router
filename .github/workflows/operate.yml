@@ -1,0 +1,35 @@
+# Operate: probe the deployed instance and turn sustained SLO breaches into
+# `incident`-labelled issues, which learn.yml already reads for change-failure
+# rate and MTTR (ADR 0002). Incidents close themselves when the target recovers.
+#
+# Set docs/slo.yml's url to a real deployment before enabling — until then this
+# is a no-op that reports "unreachable" against example.invalid.
+name: operate
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # every 30 minutes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: operate # never two probers racing to file the same incident
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # One canonical prober, invoked cross-repo (ADR 0005). Instances do not
+      # carry a copy of tools/watch, so the local-path form only works inside
+      # the template itself.
+      - run: go run github.com/jamesponwith/flywheel-template/tools/watch@latest -repo "$GITHUB_REPOSITORY" -slo docs/slo.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

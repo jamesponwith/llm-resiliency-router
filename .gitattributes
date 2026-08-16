@@ -1,0 +1,3 @@
+# Append-only agent logs: parallel agents append, never rewrite. Union-merge
+# so two agents' nightly records combine instead of conflicting.
+.flywheel/agent-log.jsonl merge=union
