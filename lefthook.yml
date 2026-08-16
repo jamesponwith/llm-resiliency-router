@@ -14,4 +14,16 @@ pre-commit:
 pre-push:
   commands:
     ai-review:
-      run: command -v claude >/dev/null || exit 0; claude -p "/flywheel-review origin/main...HEAD" || true
+      # See agentic-flywheel: git hands a pre-push hook the ref list on stdin,
+      # which the agent CLI read instead of its prompt. The failure was swallowed
+      # by `|| true`, so this review never once ran.
+      run: |
+        command -v "${FLYWHEEL_AGENT_CMD:-claude}" >/dev/null || exit 0
+        count() { [ -f .flywheel/review.jsonl ] && wc -l < .flywheel/review.jsonl || echo 0; }
+        before=$(count)
+        if ! "${FLYWHEEL_AGENT_CMD:-claude}" -p "/flywheel-review origin/main...HEAD" </dev/null; then
+          echo "warning: review did not run (agent invocation failed) — this is not 'no findings'" >&2
+          exit 0
+        fi
+        after=$(count)
+        [ "$after" -gt "$before" ] && echo "review: $((after - before)) finding(s) recorded" || echo "review: ran, no findings"
