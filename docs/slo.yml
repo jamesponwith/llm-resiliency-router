@@ -1,4 +1,8 @@
-# Operate stage contract (ADR 0002). tools/watch reads this file, probes the
+# Operate stage contract
+#
+# Proven against a live instance on 2026-08-17: healthy probe clean, process
+# killed, incident filed automatically, process restored, incident closed
+# automatically — no human in the loop at any point (fw-wma.6). (ADR 0002). tools/watch reads this file, probes the
 # target, and files an `incident`-labelled GitHub issue on a sustained breach —
 # the same label tools/dora already reads for change-failure rate and MTTR.
 #
@@ -8,7 +12,7 @@
 # {"status":"ok","version":"v0.1.0","uptime_s":123}
 # Set to the router's real deployment before enabling operate.yml. Until the
 # linux box is up (fw-wma.6) this stays unreachable and files nothing useful.
-url: https://example.invalid/healthz
+url: http://127.0.0.1:8484/healthz
 
 # How long a breach must persist before it is an incident, and how long a
 # recovery must hold before the incident is closed. Both exist to stop a single

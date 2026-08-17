@@ -173,6 +173,9 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/status.json":
 		rt.statusJSON(w, r)
 		return
+	case "/healthz":
+		rt.healthz(w, r)
+		return
 	}
 	c := rt.cfg
 	body, err := io.ReadAll(r.Body)
