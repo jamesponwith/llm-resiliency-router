@@ -1,7 +1,7 @@
 {
   "change_failure_rate": {
-    "incidents": 0,
-    "rate": 0,
+    "incidents": 2,
+    "rate": 2,
     "releases": 1
   },
   "deploy_frequency": {
@@ -9,7 +9,7 @@
     "releases_last_30d": 1,
     "releases_total": 1
   },
-  "generated_at": "2026-08-10T07:39:13Z",
+  "generated_at": "2026-08-17T06:52:54Z",
   "lead_time_hours": {
     "median": 0,
     "samples": 0
