@@ -15,7 +15,7 @@
       {
         "hooks": [
           {
-            "command": "test -z \"$(gofmt -l .)\" || { echo \"unformatted: $(gofmt -l .)\" \u003e\u00262; exit 2; }; go vet ./... || exit 2",
+            "command": "test -z \"$(gofmt -l .)\" || { echo \"unformatted: $(gofmt -l .)\" >&2; exit 2; }; go vet ./... || exit 2",
             "type": "command"
           }
         ]
@@ -24,11 +24,43 @@
   },
   "permissions": {
     "allow": [
-      "Bash(go test:*)",
+      "Bash(bd:*)",
+      "Bash(tools/flywheel/guard.sh:*)",
       "Bash(go build:*)",
+      "Bash(go test:*)",
       "Bash(go vet:*)",
       "Bash(gofmt:*)",
-      "Bash(bd:*)"
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git branch:*)",
+      "Bash(uv run:*)",
+      "Bash(lefthook run:*)",
+      "mcp__blackbird__blackbird_agent_register",
+      "mcp__blackbird__blackbird_reservation_acquire",
+      "mcp__blackbird__blackbird_reservation_release",
+      "mcp__blackbird__blackbird_reservation_renew",
+      "mcp__blackbird__blackbird_agents_list",
+      "Bash(git worktree:*)",
+      "Bash(git -C:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Write",
+      "Edit",
+      "NotebookEdit"
+    ],
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(git push --force:*)",
+      "Bash(git tag:*)",
+      "Bash(gh release:*)",
+      "Bash(./deploy.sh:*)"
     ]
   }
 }

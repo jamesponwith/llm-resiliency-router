@@ -103,6 +103,10 @@ flips to `backup` — no client-visible errors. Restart it: a half-open probe
 brings it back within 15s. Profiles in `chaos/profiles.yaml` (`flaky`, `slow`,
 `hang`, `down`) script other failure modes for tests and demos.
 
+**Why this exists:** [What a $780B payment system taught me about serving
+LLMs](docs/blog-post.md) — the resiliency patterns this router borrows from
+payments, and where the analogy stops.
+
 Pilot project of the [personal agentic flywheel](https://github.com/jamesponwith/agentic-flywheel) —
-built end-to-end through its Intent → Build → Validate → Release → Learn loop,
-from the [flywheel-template](https://github.com/jamesponwith/flywheel-template).
+built end-to-end through its Intent → Build → Validate → Release → Operate →
+Learn loop, from the [flywheel-template](https://github.com/jamesponwith/flywheel-template).

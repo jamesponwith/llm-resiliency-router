@@ -1,0 +1,57 @@
+# Intent: turn external signals into beads, so the stage stops being fed only
+# by what one person remembers (fw-cpd.3).
+#
+# Three sources, all things that already happen and are currently ignored:
+#   - a scheduled workflow that failed (Operate, Learn, or this one)
+#   - a Dependabot security alert
+#   - an incident opened by tools/watch
+#
+# Deduplicated by an exact title match, because an inbox nobody reads is worse
+# than no inbox — and the failure mode of signal intake is always volume.
+name: signals
+
+on:
+  workflow_run:
+    workflows: [learn, operate]
+    types: [completed]
+  schedule:
+    - cron: "0 7 * * 1" # monday, after learn
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: failed scheduled runs become beads
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NAME: ${{ github.event.workflow_run.name }}
+          URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          title="signal: scheduled workflow '$NAME' failed"
+          # One open issue per workflow, not one per failure: a broken schedule
+          # fails every week, and filing weekly is how an inbox becomes noise.
+          if gh issue list --state open --search "$title in:title" --json title \
+               --jq '.[].title' | grep -qxF "$title"; then
+            echo "already filed"; exit 0
+          fi
+          body="Run: $URL. The Learn and Operate stages only produce honest"
+          body="$body numbers while their schedules run — a silently failing"
+          body="$body schedule looks exactly like a quiet week."
+          gh issue create --title "$title" --label signal --body "$body"
+
+      - name: open incidents without a bead become beads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # tools/watch files incidents; this notices ones nobody has triaged.
+          open=$(gh issue list --state open --label incident --json number,title,createdAt \
+                 --jq '[.[] | select((now - (.createdAt|fromdate)) > 172800)] | length')
+          [ "${open:-0}" -gt 0 ] && echo "::warning::$open incident(s) open >48h without triage" || echo "no stale incidents"
