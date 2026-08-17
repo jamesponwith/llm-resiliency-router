@@ -6,9 +6,20 @@
 # is a no-op that reports "unreachable" against example.invalid.
 name: operate
 
+# DISABLED ON A SCHEDULE (2026-08-17). This probed an address it could never
+# reach — example.invalid, or a loopback port from a GitHub-hosted runner — and
+# filed an `incident` issue for it roughly every 50 minutes. Those incidents
+# never close, because recovery only queries the current URL and the target was
+# never up, so tools/dora counted them as real change failures: the router's
+# published dora.json read a 200% change-failure rate with zero MTTR samples.
+#
+# The Operate stage exists to make CFR and MTTR honest. Pointed at nothing, it
+# does the exact opposite, and this repo's own ADR 0003 says to leave the
+# workflow disabled until `url` names a real deployment. It was enabled anyway.
+#
+# Re-enable by restoring the schedule AFTER docs/slo.yml points at something
+# reachable from a hosted runner.
 on:
-  schedule:
-    - cron: "*/30 * * * *" # every 30 minutes
   workflow_dispatch:
 
 permissions:
