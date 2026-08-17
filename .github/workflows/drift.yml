@@ -1,0 +1,51 @@
+# Distribution: notice when this repo falls behind the flywheel (fw-fsa.2).
+#
+# Notify, never adopt. `fleet doctor -fix` is the pull mechanism and a human
+# decides when to run it; a workflow that silently rewrote your repo to match a
+# template would be a worse problem than the drift it fixed.
+#
+# `doctor` is the single definition of "inside the flywheel", so drift is
+# whatever it reports missing — there is no second, divergent list to maintain.
+name: drift
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # monday, after learn
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: report gaps as one open issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          out=$(go run github.com/jamesponwith/agentic-flywheel/tools/fleet@latest \
+                  doctor -self 2>&1) || { echo "::notice::doctor unavailable"; exit 0; }
+          echo "$out"
+          # "complete" is the whole point: a repo at parity files nothing.
+          if echo "$out" | grep -q "complete ("; then
+            echo "at parity — nothing to file"; exit 0
+          fi
+          title="drift: this repo is behind the flywheel"
+          # One standing issue, edited rather than re-filed. Weekly duplicates
+          # are how a drift check becomes something nobody reads.
+          num=$(gh issue list --state open --search "$title in:title" --json number \
+                  --jq '.[0].number // empty')
+          body=$(printf 'fleet doctor -self reports gaps.\n\n```\n%s\n```\n\nAdopt with `fleet doctor -fix -source <template>`. Artifacts marked as needing hand adaptation are not installable automatically (fw-fsa.7).' "$out")
+          if [ -n "$num" ]; then
+            gh issue edit "$num" --body "$body"
+          else
+            gh issue create --title "$title" --label drift --body "$body"
+          fi

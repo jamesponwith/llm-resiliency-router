@@ -31,11 +31,22 @@ attributable.
 
 Register with blackbird before acting (ADR 0004):
 
-- `blackbird_agent_register` with `project_key` = the repo's absolute path and
-  `agent_name` = `<repo>/builder`.
-- Reuse the stored `registration_token` if one exists so you resume the same
-  identity across restarts. It authenticates every later call as `agent_token`.
-- Never write that token into the repo or a worktree.
+- `blackbird_agent_register` with `agent_name` = `<repo>/builder` and
+  `project_key` = **`$FLYWHEEL_PROJECT_KEY`** when the spawner set it. Do not
+  derive the path yourself: blackbird keys reservations by `project_key`, and
+  two agents that resolve the same repo differently — one through a symlink,
+  one not — get different keys and therefore **never conflict**, which is the
+  failure reservations exist to prevent, silently (fw-wb2.9). Fall back to the
+  repo's absolute path only if the variable is unset.
+- Use a **stable** name — `<repo>/builder` — and persist the returned
+  `registration_token` to `$XDG_STATE_HOME/flywheel/<repo>-builder.token`
+  (falling back to `~/.local/state/flywheel/`), then reuse it on every later
+  run. blackbird ties a name to its first token permanently: a run that
+  registers `<repo>/builder` and drops the token **burns that name forever**,
+  and the next run gets `UNAUTHENTICATED`. That already happened once, and the
+  workaround — inventing `<repo>/builder-<bead>` per run — fragments the audit
+  trail one identity at a time (fw-t7d).
+- The token file lives in XDG state, never in the repo or a worktree.
 
 ## 2. Claim the work
 
