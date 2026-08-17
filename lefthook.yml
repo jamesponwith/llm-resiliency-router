@@ -2,6 +2,11 @@
 pre-commit:
   parallel: true
   commands:
+    # No beads step here. It deadlocked under lefthook's parallel execution —
+    # fine alone, hangs past 110s alongside the other commands — and after ADR
+    # 0011 untracked the JSONL export it had nothing left to contribute to a
+    # commit anyway. beads' own hooks remain available via core.hooksPath for
+    # anyone who wants them; the Build gate simply does not chain them (ADR 0012).
     gofmt:
       run: test -z "$(gofmt -l .)" || { echo "unformatted:"; gofmt -l .; exit 1; }
     vet:
@@ -11,19 +16,5 @@ pre-commit:
 
 # Validate assistant: local AI review before code leaves the machine — no CI minutes, no secrets.
 # ponytail: advisory (never blocks the push); flip to blocking if findings start getting ignored.
-pre-push:
-  commands:
-    ai-review:
-      # See agentic-flywheel: git hands a pre-push hook the ref list on stdin,
-      # which the agent CLI read instead of its prompt. The failure was swallowed
-      # by `|| true`, so this review never once ran.
-      run: |
-        command -v "${FLYWHEEL_AGENT_CMD:-claude}" >/dev/null || exit 0
-        count() { [ -f .flywheel/review.jsonl ] && wc -l < .flywheel/review.jsonl || echo 0; }
-        before=$(count)
-        if ! "${FLYWHEEL_AGENT_CMD:-claude}" -p "/flywheel-review origin/main...HEAD" </dev/null; then
-          echo "warning: review did not run (agent invocation failed) — this is not 'no findings'" >&2
-          exit 0
-        fi
-        after=$(count)
-        [ "$after" -gt "$before" ] && echo "review: $((after - before)) finding(s) recorded" || echo "review: ran, no findings"
+# No AI review here (ADR 0013): an eight-minute agent task on a synchronous git
+# operation gets bypassed. Review runs inside /flywheel-next instead.

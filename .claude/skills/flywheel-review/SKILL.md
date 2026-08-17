@@ -41,20 +41,39 @@ Rank by what would actually go wrong. Drop anything you cannot state as a
 concrete failure: "this could be cleaner" is not a finding, "this loop is O(n²)
 over a list that grows with every release" is.
 
-## Record every finding
+## Record every finding — by running the command, not showing it
 
-This is the part that makes review measurable rather than anecdotal:
+**This is a step you execute, not an example you display.** On the panel's first
+genuine run it printed this command inside a code fence instead of running it;
+the ledger stayed empty, and the hook reported "ran, no findings" for a review
+that had just found a real bug. Describing the recording is not recording.
 
-```bash
-tools/flywheel/guard.sh finding \
-  lens=security file=main.go line=42 severity=high \
-  claim="unvalidated path reaches exec" disposition=accepted
-```
+For **each** finding, invoke the Bash tool:
+
+    tools/flywheel/guard.sh finding lens=<lens> file=<path> line=<n> \
+      severity=<low|medium|high> claim="<one sentence>" disposition=<accepted|rejected|ignored>
 
 `disposition` is `accepted` (you fixed it), `rejected` (you disagreed — say why
-in the claim), or `ignored` (deferred). Record **rejected** findings too. A
-ledger of only the good calls cannot tell you the reviewer's false-positive
-rate, and that number decides whether the panel is worth its cost.
+in the claim), or `ignored` (deferred). Record **rejected** findings too: a
+ledger of only the good calls cannot produce a false-positive rate, and that
+number decides whether the panel is worth its cost.
+
+**If you found nothing, still record that**, so a clean review is
+distinguishable from a review that failed to write:
+
+    tools/flywheel/guard.sh finding lens=panel severity=none \
+      claim="no findings" disposition=none
+
+## Verify you actually recorded
+
+Before reporting, run:
+
+    wc -l .flywheel/review.jsonl
+
+It must have grown by the number of findings you recorded, plus the `none` line
+if you found nothing. **If it did not grow, you did not record** — go back and
+run the commands. An unwritten ledger is the failure this panel exists to
+prevent, and it has already happened once.
 
 ## Stay inside the budget
 
