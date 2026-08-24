@@ -9,14 +9,14 @@
     "releases_last_30d": 1,
     "releases_total": 1
   },
-  "generated_at": "2026-08-17T06:52:54Z",
+  "generated_at": "2026-08-24T06:56:04Z",
   "lead_time_hours": {
     "median": 0,
     "samples": 0
   },
   "mttr_hours": {
-    "median": 0,
-    "samples": 0
+    "median": 22.0075,
+    "samples": 2
   },
   "repo": "jamesponwith/llm-resiliency-router"
 }
