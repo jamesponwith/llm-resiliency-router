@@ -38,7 +38,6 @@
       "Bash(git checkout:*)",
       "Bash(git rev-parse:*)",
       "Bash(git branch:*)",
-      "Bash(uv run:*)",
       "Bash(lefthook run:*)",
       "mcp__blackbird__blackbird_agent_register",
       "mcp__blackbird__blackbird_reservation_acquire",
@@ -46,21 +45,30 @@
       "mcp__blackbird__blackbird_reservation_renew",
       "mcp__blackbird__blackbird_agents_list",
       "Bash(git worktree:*)",
-      "Bash(git -C:*)",
       "Bash(git push:*)",
       "Bash(gh pr create:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr checks:*)",
       "Write",
       "Edit",
-      "NotebookEdit"
+      "NotebookEdit",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)"
     ],
     "deny": [
       "Bash(gh pr merge:*)",
       "Bash(git push --force:*)",
       "Bash(git tag:*)",
       "Bash(gh release:*)",
-      "Bash(./deploy.sh:*)"
+      "Bash(./deploy.sh:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git -C:*)",
+      "Bash(uv run --no-project:*)",
+      "Bash(gh auth token:*)",
+      "Bash(gh api:*)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(**/.env)"
     ]
   }
 }

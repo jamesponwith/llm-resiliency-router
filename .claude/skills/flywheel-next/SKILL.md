@@ -151,6 +151,23 @@ backoff`). Push the branch and open a PR whose body states what the bead asked
 for, what you did, how the acceptance criteria were met, and anything you
 deliberately left out.
 
+**Take the merge slot around the push, not around the build.** Worktrees isolate
+edits but not merges: two builders can each be green in isolation and still
+produce an incoherent `main`. Builds are the slow part and genuinely
+independent, so only the push is serialised.
+
+```bash
+bd merge-slot create 2>/dev/null || true   # idempotent
+bd merge-slot acquire                      # blocks; non-zero means held
+git push -u origin bead/<id> && gh pr create ...
+bd merge-slot release
+```
+
+If you cannot acquire it within a few minutes, **do not push** — pushing anyway
+is exactly the race the slot exists to prevent. Leave the bead open, say so,
+and stop. Release it even when the push fails, or you strand every other
+builder in the repo.
+
 Then close out cleanly:
 
 ```bash
