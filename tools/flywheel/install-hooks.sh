@@ -25,7 +25,8 @@ tmp=probe_$$.go
 printf 'package main\n\nfunc  Bad( X ) {}\n' > "$tmp"
 git add "$tmp"
 if git commit -q -m "probe: must be rejected" >/dev/null 2>&1; then
-  git reset -q --hard HEAD~1
+  git reset -q --soft HEAD~1 # undo only the probe; --hard would also wipe uncommitted work
+  git reset -q HEAD "$tmp"; rm -f "$tmp"
   echo "FAIL: the gate accepted deliberately unformatted code" >&2
   exit 1
 fi
