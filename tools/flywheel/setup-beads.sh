@@ -33,6 +33,10 @@ for f in issues.jsonl interactions.jsonl; do
   grep -qxF "$f" .beads/.gitignore || echo "$f" >> .beads/.gitignore
   git rm -q --cached --ignore-unmatch ".beads/$f"
 done
+# bd >= 1.3 drops an empty .beads.gate.lock at the repo root, outside the reach
+# of .beads/.gitignore. Keep it out of `git status` for this clone.
+exclude=$(git rev-parse --git-path info/exclude)
+grep -qxF .beads.gate.lock "$exclude" 2>/dev/null || echo .beads.gate.lock >> "$exclude"
 
 # 3. The database is the durable copy (ADR 0011).
 bd dolt remote list 2>/dev/null | grep -q '^origin' || bd dolt remote add origin "$dolt_url" >/dev/null
