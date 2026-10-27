@@ -4,7 +4,7 @@
 # killed, incident filed automatically, process restored, incident closed
 # automatically — no human in the loop at any point (fw-wma.6). (ADR 0002). tools/watch reads this file, probes the
 # target, and files an `incident`-labelled GitHub issue on a sustained breach —
-# the same label tools/dora already reads for change-failure rate and MTTR.
+# the same label the Learn stage's DORA collector (flywheel-template/tools/dora) reads for change-failure rate and MTTR.
 #
 # Flat key: value only. See the ponytail note in tools/watch/main.go.
 
