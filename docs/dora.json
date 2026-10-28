@@ -1,22 +1,56 @@
 {
+  "agent": {
+    "autonomous_prs": {
+      "clean_rate": 1,
+      "measurable": true,
+      "merged_without_further_commits": 2,
+      "note": "counts bead/* PRs with no commits after opening, by any author — not a measure of human intervention",
+      "opened": 2
+    },
+    "final_gate_pass": {
+      "green": 22,
+      "measurable": true,
+      "note": "state of checks at merge, not the first attempt: /check-runs returns filter=latest, so a failed-then-rerun PR counts as green. Structurally near 1.0 — do not read it as first-pass.",
+      "rate": 1,
+      "total": 22
+    },
+    "review_round_trips": {
+      "measurable": false,
+      "median": 0,
+      "samples": 22,
+      "why": "review happens locally (ADR 0002/0013); GitHub review events do not exist in this workflow"
+    },
+    "rework_commits_after_open": {
+      "measurable": false,
+      "median": 0,
+      "samples": 22,
+      "why": "squash-merge workflow: commit dates precede PR creation, so this is structurally 0"
+    }
+  },
   "change_failure_rate": {
-    "incidents": 2,
-    "rate": 2,
+    "attempts": 1,
+    "failed_changes": 0,
+    "failed_deploys": 0,
+    "incidents": 0,
+    "rate": 0,
     "releases": 1
   },
   "deploy_frequency": {
+    "last_30d": 0,
     "per_week": 0,
     "releases_last_30d": 0,
-    "releases_total": 1
+    "releases_total": 1,
+    "source": "releases",
+    "total": 1
   },
-  "generated_at": "2026-10-26T12:19:19Z",
+  "generated_at": "2026-10-28T16:50:19Z",
   "lead_time_hours": {
     "median": 0,
     "samples": 0
   },
   "mttr_hours": {
-    "median": 22.0075,
-    "samples": 2
+    "median": 0,
+    "samples": 0
   },
   "repo": "jamesponwith/llm-resiliency-router"
 }
